@@ -166,11 +166,22 @@ export const Plugin = {
                   message: `Session ${existing.id} is not a child of the current session`,
                 })
               const override = input.model === undefined ? undefined : yield* resolveModel(input.model)
+              // A resolved model without a variant runs at the model's default effort — even
+              // when it is the very model the parent runs at a picked variant (a bare
+              // "providerID/modelID" override, or an agent configured without one). Same model
+              // inherits the parent's variant; a different model keeps its own default, as
+              // variant ids are model-specific.
+              const withParentVariant = (ref: Model.Ref | undefined): Model.Ref | undefined => {
+                if (ref === undefined || ref.variant !== undefined) return ref
+                if (parent.model?.variant === undefined) return ref
+                if (ref.providerID !== parent.model.providerID || ref.id !== parent.model.id) return ref
+                return { ...ref, variant: parent.model.variant }
+              }
               // Continuing with a different agent switches the child, mirroring create semantics
               // where an explicit model wins over the agent's configured model, which wins over the inherited one.
               if (existing !== undefined) {
                 const switched = existing.agent !== agent.id
-                const model = override ?? (switched ? agent.model : undefined)
+                const model = withParentVariant(override ?? (switched ? agent.model : undefined))
                 yield* Effect.all([
                   switched ? sessions.switchAgent({ sessionID: existing.id, agent: agent.id }) : Effect.void,
                   model === undefined ? Effect.void : sessions.switchModel({ sessionID: existing.id, model }),
@@ -181,7 +192,7 @@ export const Plugin = {
                 )
               }
 
-              const model = override ?? agent.model ?? parent.model
+              const model = withParentVariant(override ?? agent.model ?? parent.model)
               const child =
                 existing ??
                 (yield* sessions
